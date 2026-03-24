@@ -1,4 +1,8 @@
 annotated-doc==0.0.4
+langchain==0.3.25
+langchain-openai==0.3.16
+langchain-anthropic==0.3.15
+langchain-community==0.3.24
 annotated-types==0.7.0
 anyio==3.7.1
 cachetools==6.2.6
