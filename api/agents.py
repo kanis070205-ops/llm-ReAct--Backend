@@ -15,6 +15,7 @@ def create_agent(agent: AgentCreate):
         "category": agent.category,
         "skills": agent.skills,
         "llm_config_id": agent.llm_config_id,
+        "tools": agent.tools or [],
     }).execute()
     return data.data[0]
 
@@ -45,6 +46,7 @@ def dry_run(req: DryRunRequest):
         "description": req.description,
         "category": req.category,
         "skills": req.skills,
+        "tools": req.tools or [],
     }
     
     try:

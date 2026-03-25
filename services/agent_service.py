@@ -1,8 +1,4 @@
-"""
-Agent Service — builds and runs a LangChain ReAct agent with real tools.
-Both dry-run and run go through the same agent executor so tools are
-always active — the only difference is dry-run doesn't persist the agent.
-"""
+
 from langchain.agents import initialize_agent, AgentType
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -26,18 +22,30 @@ def _build_llm(cfg: dict):
         temperature=0,
     )
 
-
 def _build_prefix(agent_row: dict) -> str:
-    """Build the ReAct system prefix from the agent's DB fields."""
-    skills_block = f"\nSkills: {agent_row['skills']}" if agent_row.get("skills") else ""
-    return (
-        f"You are {agent_row['name']}, an AI agent.\n"
-        f"Description: {agent_row.get('description', '')}{skills_block}\n\n"
-        "You have access to tools. Use them whenever they help answer the request.\n"
-        "Think step by step using Thought / Action / Action Input / Observation.\n"
-        "When you have enough information, respond with Final Answer."
-    )
+    def _escape(text: str) -> str:
+        return text.replace("{", "{{").replace("}", "}}") if text else ""
 
+    name = _escape(agent_row.get("name", "Agent"))
+    description = _escape(agent_row.get("description", ""))
+
+    MAX_SKILLS = 1000
+    skills = _escape((agent_row.get("skills") or "")[:MAX_SKILLS])
+
+    skills_block = f"\nSkills: {skills}" if skills else ""
+
+    return (
+        f"You are {name}.\n"
+        f"{description}{skills_block}\n\n"
+        "You can use tools.\n\n"
+        "IMPORTANT RULES:\n"
+        "- Always finish with 'Final Answer:'\n"
+        "- Do NOT keep thinking forever\n"
+        "- If you used a tool, summarize and STOP\n"
+        "- Max 2 tool uses\n"
+        "- Output must end with Final Answer\n"
+        "- Do NOT include Thought, Action, Observation in final answer\n"
+    )
 
 def build_agent_executor(agent_row: dict, llm_cfg: dict):
     """
@@ -47,8 +55,8 @@ def build_agent_executor(agent_row: dict, llm_cfg: dict):
     llm = _build_llm(llm_cfg)
     category = agent_row.get("category", "")
     tool_names = agent_row.get("tools")
-    # fall back to all tools if category not mapped
-    if tool_names:
+    # If tools is explicitly set (even empty list), use it; otherwise fall back to category defaults
+    if tool_names is not None:
         tools = [TOOL_REGISTRY[name] for name in tool_names if name in TOOL_REGISTRY]
     else:
         tools = CATEGORY_TOOLS.get(category, list(TOOL_REGISTRY.values()))
@@ -62,12 +70,13 @@ def build_agent_executor(agent_row: dict, llm_cfg: dict):
         verbose=True,
         agent_kwargs={"prefix": _build_prefix(agent_row)},
         handle_parsing_errors=True,
-        max_iterations=6,
+        max_iterations=3,
     )
 
 
 def run_agent(agent_row: dict, llm_cfg: dict, prompt: str) -> str:
     """Run the agent and return the final output string."""
     executor = build_agent_executor(agent_row, llm_cfg)
+    print("hello")
     result = executor.invoke({"input": prompt})
     return result.get("output", str(result))

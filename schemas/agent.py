@@ -8,6 +8,7 @@ class AgentCreate(BaseModel):
     category: str
     skills: Optional[str] = None
     llm_config_id: str
+    tools: Optional[list[str]] = None
 
 
 class AgentRead(BaseModel):
@@ -21,10 +22,11 @@ class AgentRead(BaseModel):
 
 class DryRunRequest(BaseModel):
     description: str
-    category: str           # needed to pick the right tools
+    category: str
     skills: Optional[str] = None
     llm_config_id: str
     prompt: str
+    tools: Optional[list[str]] = None
 
 
 class RunAgentRequest(BaseModel):
