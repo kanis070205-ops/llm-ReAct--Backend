@@ -3,7 +3,7 @@ from langchain.agents import initialize_agent, AgentType
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from tools.registry import TOOL_REGISTRY, CATEGORY_TOOLS
-
+from pprint import pprint
 
 def _build_llm(cfg: dict):
     """Instantiate the correct LangChain chat model from a decrypted config row."""
@@ -32,21 +32,28 @@ def _build_prefix(agent_row: dict) -> str:
     MAX_SKILLS = 1000
     skills = _escape((agent_row.get("skills") or "")[:MAX_SKILLS])
 
-    skills_block = f"\nSkills: {skills}" if skills else ""
-
     return (
-        f"You are {name}.\n"
-        f"{description}{skills_block}\n\n"
-        "You can use tools.\n\n"
-        "IMPORTANT RULES:\n"
-        "- Always finish with 'Final Answer:'\n"
-        "- Do NOT keep thinking forever\n"
-        "- If you used a tool, summarize and STOP\n"
-        "- Max 2 tool uses\n"
-        "- Output must end with Final Answer\n"
-        "- Do NOT include Thought, Action, Observation in final answer\n"
-    )
+    f"You are {name}.\n"
+    f"{description}\n\n"
+    f"Your skills include: {skills}\n\n"
 
+    "STRICT RULES:\n"
+    "- Maximum 2 tool calls\n"
+    "- Never repeat the same tool\n"
+    "- If you get useful data → STOP immediately\n"
+    "- ALWAYS produce Final Answer after first successful tool call\n"
+    "- Do NOT continue thinking after getting the answer\n\n"
+
+    "FORMAT:\n"
+    "Question: {input}\n"
+    "Thought: ...\n"
+    "Action: tool_name\n"
+    "Action Input: ...\n"
+    "Observation: ...\n"
+    "Thought: ...\n"
+    "Final Answer: <answer>\n"
+
+)
 def build_agent_executor(agent_row: dict, llm_cfg: dict):
     """
     Build a LangChain ReAct agent executor wired with the correct tools
@@ -71,12 +78,24 @@ def build_agent_executor(agent_row: dict, llm_cfg: dict):
         agent_kwargs={"prefix": _build_prefix(agent_row)},
         handle_parsing_errors=True,
         max_iterations=3,
+        early_stopping_method="force",
+        return_intermediate_steps=True,
     )
 
 
 def run_agent(agent_row: dict, llm_cfg: dict, prompt: str) -> str:
     """Run the agent and return the final output string."""
     executor = build_agent_executor(agent_row, llm_cfg)
-    print("hello")
+
     result = executor.invoke({"input": prompt})
-    return result.get("output", str(result))
+    output = result.get("output", "").strip()
+
+    # If LLM got stuck and returned empty output, grab the last tool observation
+    if not output or output in ("", "Agent stopped due to iteration limit or time limit."):
+        steps = result.get("intermediate_steps", [])
+        if steps:
+            last_observation = steps[-1][1]  # (AgentAction, observation)
+            return str(last_observation).strip()
+
+    return output
+

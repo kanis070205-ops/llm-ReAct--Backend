@@ -10,14 +10,14 @@ router = APIRouter(prefix="", tags=["Tools"])
 
 @router.get("/tools", response_model=list[ToolRead])
 def list_tools():
-    return [
-        {
+    tools = []
+    for name, tool in TOOL_REGISTRY.items():
+        desc = getattr(tool, "description", None) or getattr(tool, "name", "")
+        tools.append({
             "name": name,
-            "description": tool.description
-        }
-        for name, tool in TOOL_REGISTRY.items()
-    ]
-
+            "description": desc
+        })
+    return tools
 
 # ── Assign Tools to Agent ──────────────────────────
 

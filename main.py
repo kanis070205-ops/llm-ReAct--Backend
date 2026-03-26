@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api import llm_config, agents, tools
+from api import llm_config, agents, tools, tasks
 
 app = FastAPI(title="AI Console API", version="1.0.0")
 
@@ -15,3 +15,4 @@ app.add_middleware(
 app.include_router(llm_config.router)
 app.include_router(agents.router)
 app.include_router(tools.router)
+app.include_router(tasks.router)

@@ -1,47 +1,16 @@
 from langchain.tools import tool
+from langchain.tools import Tool
 from datetime import datetime
 import ast
 import operator
-
+from langchain_community.tools.tavily_search import TavilySearchResults
 # ── Safe calculator (no eval) ─────────────────────────────────
 
-_OPS = {
-    ast.Add: operator.add,
-    ast.Sub: operator.sub,
-    ast.Mult: operator.mul,
-    ast.Div: operator.truediv,
-    ast.Pow: operator.pow,
-    ast.USub: operator.neg,
-}
+import os
 
+from langgraph.func import task
 
-def _safe_eval(node):
-    if isinstance(node, ast.Constant):
-        return node.n
-    if isinstance(node, ast.BinOp):
-        return _OPS[type(node.op)](_safe_eval(node.left), _safe_eval(node.right))
-    if isinstance(node, ast.UnaryOp):
-        return _OPS[type(node.op)](_safe_eval(node.operand))
-    raise ValueError(f"Unsupported: {ast.dump(node)}")
-
-
-@tool
-def calculator(expression: str) -> str:
-    """Safely evaluate a math expression. Example: '2 + 3 * 4'"""
-    print(f"[TOOL USED] calculator called with: {expression}")
-    try:
-        result = _safe_eval(ast.parse(expression, mode="eval").body)
-        return str(result)
-    except Exception as e:
-        return f"Error: {e}"
-
-
-@tool
-def current_time(_: str) -> str:
-    """Return the current date and time."""
-    print(f"[TOOL USED] current_time called")
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+BASE_DIR_ = os.path.join(os.getcwd(), "workspace")
 
 @tool
 def calendar_tool(task: str) -> str:
@@ -50,23 +19,106 @@ def calendar_tool(task: str) -> str:
     return f"Scheduled: '{task}' at {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
 
+tavily_tool = TavilySearchResults(max_results=3)
+def safe_search(query: str):
+    results = tavily_tool.invoke({"query": query})
+
+    # Extract only useful text
+    cleaned = []
+    for r in results[:3]:
+        cleaned.append(f"{r.get('title')}: {r.get('content')[:200]}")
+    print(f"[TOOL USED] web_search called with: {query}")
+    return "\n".join(cleaned)
+
+web_search_tool = Tool(
+    name="web_search",
+    func=safe_search,
+    description=(
+        "Use this to search the web for current information. "
+        "Call this at most once. After getting results, summarize and return final answer."
+    )
+)
+
+def safe_path(filename):
+    path = os.path.abspath(os.path.join(BASE_DIR_, filename))
+
+    if not path.startswith(os.path.abspath(BASE_DIR_)):
+        raise ValueError("Access denied")
+
+    return path
+
 @tool
-def doc_search(query: str) -> str:
-    """Search developer documentation. Wire up a real index when ready."""
-    print(f"[TOOL USED] doc_search called with: {query}")
-    return f"[doc_search] No index connected yet. Query: '{query}'"
+def file_read(filename: str) -> str:
+    """Read a file from workspace directory."""
+    try:
+        path = safe_path(filename)
+
+        if not os.path.exists(path):
+            return "File not found"
+
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        print(f"[TOOL USED] file_read called with: {filename}")
+        return content
+
+    except Exception as e:
+        return f"Error: {e}"
+    
+@tool
+def file_write(input_str: str) -> str:
+    """
+    Write content to a file.
+    Format: filename::content
+    Example: notes.txt::Hello world
+    """
+    try:
+        filename, content = input_str.split("::", 1)
+        path = safe_path(filename.strip())
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"[TOOL USED] file_write called with: {filename}")
+        return f"File '{filename}' written successfully"
+
+    except Exception as e:
+        return f"Error: {e}"
+    
+@tool
+def file_search(query: str) -> str:
+    """Search for text inside all files in workspace."""
+    results = []
+
+    for fname in os.listdir(BASE_DIR_):
+        path = safe_path(fname)
+
+        if not os.path.isfile(path):
+            continue
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            if query.lower() in content.lower():
+                results.append(f"Found in {fname}: {content[:300]}")
+
+        except:
+            continue
+
+    if not results:
+        return "No matches found"
+    print(f"[TOOL USED] file_search called with: {query}")
+    return "\n\n".join(results[:5])
 
 
 # All available tools by name
 TOOL_REGISTRY: dict = {
-    "calculator": calculator,
-    "current_time": current_time,
-    "calendar_tool": calendar_tool,
-    "doc_search": doc_search,
+    "web_search": web_search_tool,
+    "file_read": file_read,
+    "file_write": file_write,
+    "file_search": file_search
 }
-
 # Default tools per agent category
 CATEGORY_TOOLS: dict = {
-    "Development": [doc_search, calculator],
-    "Code Quality": [doc_search],
+    "Development": [file_read, file_write],
+    "Code Quality": [file_search, web_search_tool],
 }
