@@ -1,0 +1,1 @@
+Recent Python updates include Python 3.11, which was released in October 2022, and features improvements to performance, security, and usability.

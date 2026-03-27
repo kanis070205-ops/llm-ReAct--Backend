@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from core.database import supabase
-from schemas.task import TaskCreate, WorkflowRequest, TaskDryRunRequest
+from schemas.task import TaskCreate, TaskUpdate, WorkflowRequest, TaskDryRunRequest
 from services.task_service import generate_workflow, dry_run_task
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
@@ -56,7 +56,6 @@ def task_dry_run(req: TaskDryRunRequest):
             req.task_description,
             req.agent_ids,
             req.workflow,
-            req.llm_config_id,
             req.prompt,
         )
         return {"results": results}
@@ -67,3 +66,14 @@ def task_dry_run(req: TaskDryRunRequest):
 @router.delete("/{task_id}", status_code=204)
 def delete_task(task_id: str):
     supabase.table("tasks").delete().eq("id", task_id).execute()
+
+
+@router.patch("/{task_id}")
+def update_task(task_id: str, updates: TaskUpdate):
+    payload = {k: v for k, v in updates.model_dump().items() if v is not None}
+    if not payload:
+        raise HTTPException(status_code=400, detail="No fields to update.")
+    result = supabase.table("tasks").update(payload).eq("id", task_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    return result.data[0]

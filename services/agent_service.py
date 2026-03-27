@@ -22,7 +22,7 @@ def _build_llm(cfg: dict):
         temperature=0,
     )
 
-def _build_prefix(agent_row: dict) -> str:
+def _build_prefix(agent_row: dict, role_hint: str = "") -> str:
     def _escape(text: str) -> str:
         return text.replace("{", "{{").replace("}", "}}") if text else ""
 
@@ -32,29 +32,30 @@ def _build_prefix(agent_row: dict) -> str:
     MAX_SKILLS = 1000
     skills = _escape((agent_row.get("skills") or "")[:MAX_SKILLS])
 
+    role_section = f"\n{_escape(role_hint)}\n" if role_hint else ""
+
     return (
-    f"You are {name}.\n"
-    f"{description}\n\n"
-    f"Your skills include: {skills}\n\n"
-
-    "STRICT RULES:\n"
-    "- Maximum 2 tool calls\n"
-    "- Never repeat the same tool\n"
-    "- If you get useful data → STOP immediately\n"
-    "- ALWAYS produce Final Answer after first successful tool call\n"
-    "- Do NOT continue thinking after getting the answer\n\n"
-
-    "FORMAT:\n"
-    "Question: {input}\n"
-    "Thought: ...\n"
-    "Action: tool_name\n"
-    "Action Input: ...\n"
-    "Observation: ...\n"
-    "Thought: ...\n"
-    "Final Answer: <answer>\n"
-
-)
-def build_agent_executor(agent_row: dict, llm_cfg: dict):
+        f"You are {name}.\n"
+        f"{description}\n\n"
+        f"Your skills include: {skills}\n"
+        f"{role_section}\n"
+        "STRICT RULES:\n"
+        "- Maximum 2 tool calls\n"
+        "- Never repeat the same tool\n"
+        "- If previous agents already gathered the data you need, use it directly — do NOT search again\n"
+        "- If you get useful data → STOP immediately\n"
+        "- ALWAYS produce Final Answer after first successful tool call\n"
+        "- Do NOT continue thinking after getting the answer\n\n"
+        "FORMAT:\n"
+        "Question: {input}\n"
+        "Thought: ...\n"
+        "Action: tool_name\n"
+        "Action Input: ...\n"
+        "Observation: ...\n"
+        "Thought: ...\n"
+        "Final Answer: <answer>\n"
+    )
+def build_agent_executor(agent_row: dict, llm_cfg: dict, role_hint: str = ""):
     """
     Build a LangChain ReAct agent executor wired with the correct tools
     for the agent's category. Shared by both dry-run and run endpoints.
@@ -75,7 +76,7 @@ def build_agent_executor(agent_row: dict, llm_cfg: dict):
         llm=llm,
         agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
         verbose=True,
-        agent_kwargs={"prefix": _build_prefix(agent_row)},
+        agent_kwargs={"prefix": _build_prefix(agent_row, role_hint)},
         handle_parsing_errors=True,
         max_iterations=3,
         early_stopping_method="force",
@@ -83,9 +84,9 @@ def build_agent_executor(agent_row: dict, llm_cfg: dict):
     )
 
 
-def run_agent(agent_row: dict, llm_cfg: dict, prompt: str) -> str:
+def run_agent(agent_row: dict, llm_cfg: dict, prompt: str, role_hint: str = "") -> str:
     """Run the agent and return the final output string."""
-    executor = build_agent_executor(agent_row, llm_cfg)
+    executor = build_agent_executor(agent_row, llm_cfg, role_hint)
 
     result = executor.invoke({"input": prompt})
     output = result.get("output", "").strip()
@@ -98,4 +99,30 @@ def run_agent(agent_row: dict, llm_cfg: dict, prompt: str) -> str:
             return str(last_observation).strip()
 
     return output
+
+
+def run_final_agent(agent_row: dict, llm_cfg: dict, prompt: str) -> str:
+    """
+    Run the last agent in a pipeline as a pure LLM call — no tools.
+    Used when the agent's job is to synthesize/report on prior outputs,
+    not to gather new data.
+    """
+    llm = _build_llm(llm_cfg)
+    name = agent_row.get("name", "Agent")
+    description = agent_row.get("description", "")
+    skills = (agent_row.get("skills") or "")
+
+    system = (
+        f"You are {name}.\n"
+        f"{description}\n\n"
+        f"Your skills include: {skills}\n\n"
+        "You are the final agent in a pipeline. Previous agents have already gathered all necessary data.\n"
+        "Your job is ONLY to synthesize, summarize, or report on the provided context.\n"
+        "Do NOT use any tools. Do NOT search for new information.\n"
+        "Write a clear, well-structured final answer based solely on the context given."
+    )
+
+    from langchain_core.messages import SystemMessage, HumanMessage
+    result = llm.invoke([SystemMessage(content=system), HumanMessage(content=prompt)])
+    return result.content.strip()
 

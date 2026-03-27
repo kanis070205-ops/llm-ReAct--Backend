@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from core.database import supabase
-from schemas.agent import AgentCreate, DryRunRequest, RunAgentRequest
+from schemas.agent import AgentCreate, AgentUpdate, DryRunRequest, RunAgentRequest
 from services.llm_service import get_llm_config
 from services.agent_service import run_agent
 
@@ -71,3 +71,19 @@ def run_saved_agent(req: RunAgentRequest):
         return {"output": output}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent execution error: {e}")
+
+
+@router.patch("/{agent_id}")
+def update_agent(agent_id: str, updates: AgentUpdate):
+    payload = {k: v for k, v in updates.model_dump().items() if v is not None}
+    if not payload:
+        raise HTTPException(status_code=400, detail="No fields to update.")
+    result = supabase.table("agents").update(payload).eq("id", agent_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Agent not found.")
+    return result.data[0]
+
+
+@router.delete("/{agent_id}", status_code=204)
+def delete_agent(agent_id: str):
+    supabase.table("agents").delete().eq("id", agent_id).execute()

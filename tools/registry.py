@@ -90,20 +90,16 @@ def file_search(query: str) -> str:
 
     for fname in os.listdir(BASE_DIR_):
         path = safe_path(fname)
-
         if not os.path.isfile(path):
             continue
-
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             if query.lower() in content.lower():
                 results.append(f"Found in {fname}: {content[:300]}")
-
         except:
             continue
-
     if not results:
         return "No matches found"
     print(f"[TOOL USED] file_search called with: {query}")
@@ -120,5 +116,5 @@ TOOL_REGISTRY: dict = {
 # Default tools per agent category
 CATEGORY_TOOLS: dict = {
     "Development": [file_read, file_write],
-    "Code Quality": [file_search, web_search_tool],
+    "Knowledge & Research": [file_search, web_search_tool],
 }

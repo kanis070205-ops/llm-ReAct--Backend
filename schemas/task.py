@@ -6,7 +6,14 @@ class TaskCreate(BaseModel):
     name: str
     description: str
     agent_ids: List[str]
-    workflow: Optional[str] = None  # LLM-generated workflow text
+    workflow: Optional[str] = None
+
+
+class TaskUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    agent_ids: Optional[List[str]] = None
+    workflow: Optional[str] = None
 
 
 class TaskRead(BaseModel):
@@ -29,5 +36,4 @@ class TaskDryRunRequest(BaseModel):
     task_description: str
     agent_ids: List[str]
     workflow: Optional[str] = None
-    llm_config_id: str
     prompt: str

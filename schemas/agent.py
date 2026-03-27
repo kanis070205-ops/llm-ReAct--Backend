@@ -11,6 +11,15 @@ class AgentCreate(BaseModel):
     tools: Optional[list[str]] = None
 
 
+class AgentUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    skills: Optional[str] = None
+    llm_config_id: Optional[str] = None
+    tools: Optional[list[str]] = None
+
+
 class AgentRead(BaseModel):
     id: str
     name: str
