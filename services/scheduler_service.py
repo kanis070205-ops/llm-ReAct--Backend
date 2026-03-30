@@ -67,7 +67,7 @@ def execute_task(task_id: str, trigger_type: str, prompt: str = ""):
             task["description"],
             agent_ids,
             task.get("workflow"),
-            llm_config_id,
+            #llm_config_id,
             effective_prompt,
         )
         record_run(task_id, trigger_type, effective_prompt, "success", results)

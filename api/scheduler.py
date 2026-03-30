@@ -6,7 +6,9 @@ from services.scheduler_service import (
     _register_schedule,
     unregister_schedule,
 )
-
+from services.scheduler_service import _get_task, _get_agent_llm_config_id
+from services.task_service import dry_run_task
+from services.scheduler_service import record_run
 router = APIRouter(prefix="/scheduler", tags=["Scheduler"])
 
 
@@ -67,10 +69,6 @@ def manual_run(body: ManualRunRequest):
     if not task_result.data:
         raise HTTPException(status_code=404, detail="Task not found")
     # Run in foreground so we can return the result
-    from services.scheduler_service import _get_task, _get_agent_llm_config_id
-    from services.task_service import dry_run_task
-    from services.scheduler_service import record_run
-
     task = _get_task(body.task_id)
     agent_ids = task.get("agent_ids", [])
     llm_config_id = _get_agent_llm_config_id(agent_ids)
@@ -81,7 +79,8 @@ def manual_run(body: ManualRunRequest):
     try:
         results = dry_run_task(
             task["name"], task["description"], agent_ids,
-            task.get("workflow"), llm_config_id, prompt,
+            task.get("workflow"), #llm_config_id, 
+            prompt,
         )
         record_run(body.task_id, "manual", prompt, "success", results)
         return {"status": "success", "results": results}

@@ -2,7 +2,6 @@ from core.database import supabase
 from services.llm_service import get_llm_config
 from services.agent_service import run_agent, run_final_agent
 
-
 def generate_workflow(task_name: str, task_description: str, agent_names: list[str], llm_config_id: str) -> str:
     """Ask the LLM to suggest a workflow for the task given the assigned agents."""
     from langchain_openai import ChatOpenAI
@@ -33,7 +32,6 @@ def generate_workflow(task_name: str, task_description: str, agent_names: list[s
 
     result = llm.invoke(prompt)
     return result.content
-
 
 def dry_run_task(task_name: str, task_description: str, agent_ids: list[str], workflow: str | None, prompt: str) -> dict:
     """
