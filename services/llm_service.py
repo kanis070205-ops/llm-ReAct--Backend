@@ -1,6 +1,5 @@
 """
-LLM Service — responsible only for fetching and decrypting LLM config from DB.
-All actual LLM calls go through agent_service (LangChain + tools).
+LLM Service — fetches and decrypts LLM config from DB.
 """
 from fastapi import HTTPException
 from core.database import supabase

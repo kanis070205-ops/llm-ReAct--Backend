@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from core.database import supabase
 from schemas.task import TaskCreate, TaskUpdate, WorkflowRequest, TaskDryRunRequest
-from services.task_service import generate_workflow, dry_run_task
+from services.task_service import generate_workflow
+from services.docker_task import execute_task as docker_execute
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -18,6 +20,7 @@ def create_task(task: TaskCreate):
         "description": task.description,
         "agent_ids": task.agent_ids,
         "workflow": task.workflow,
+        "enabled": task.enabled if task.enabled is not None else True,
     }).execute()
     return data.data[0]
 
@@ -30,14 +33,11 @@ def check_task_name(name: str):
 
 @router.post("/generate-workflow")
 def get_workflow(req: WorkflowRequest):
-    """Ask the LLM to generate a workflow for the task."""
-    # Fetch agent names for context
     agent_names = []
     for agent_id in req.agent_ids:
         result = supabase.table("agents").select("name").eq("id", agent_id).execute()
         if result.data:
             agent_names.append(result.data[0]["name"])
-
     try:
         workflow = generate_workflow(req.task_name, req.task_description, agent_names, req.llm_config_id)
         return {"workflow": workflow}
@@ -45,22 +45,58 @@ def get_workflow(req: WorkflowRequest):
         raise HTTPException(status_code=500, detail=f"Workflow generation failed: {e}")
 
 
+def _get_first_agent(agent_ids: list) -> dict:
+    """Fetch the first agent from DB or raise."""
+    if not agent_ids:
+        raise HTTPException(status_code=400, detail="No agents assigned.")
+    res = supabase.table("agents").select("*").eq("id", agent_ids[0]).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Agent not found.")
+    return res.data[0]
+
+
 @router.post("/dry-run")
 def task_dry_run(req: TaskDryRunRequest):
-    """Run the task prompt through all assigned agents."""
-    if not req.agent_ids:
-        raise HTTPException(status_code=400, detail="No agents assigned to this task.")
+    """Run the task prompt through Docker container (ReAct loop)."""
+    agent = _get_first_agent(req.agent_ids)
     try:
-        results = dry_run_task(
-            req.task_name,
-            req.task_description,
-            req.agent_ids,
-            req.workflow,
-            req.prompt,
+        result = docker_execute(
+            prompt=req.prompt,
+            agent_row=agent,
+            llm_config_id=agent["llm_config_id"],
         )
-        return {"results": results}
+        return {"results": result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Dry run failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Docker run failed: {e}")
+
+
+@router.post("/run-task")
+def run_task(req: TaskDryRunRequest):
+    """Run a saved task by task_id through Docker."""
+    task_res = supabase.table("tasks").select("*").eq("id", req.task_name).execute()
+    if not task_res.data:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    task = task_res.data[0]
+    agent = _get_first_agent(task.get("agent_ids") or [])
+    try:
+        result = docker_execute(
+            prompt=req.prompt,
+            agent_row=agent,
+            llm_config_id=agent["llm_config_id"],
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Container execution failed: {e}")
+
+
+@router.patch("/{task_id}/toggle")
+def toggle_task(task_id: str):
+    result = supabase.table("tasks").select("enabled").eq("id", task_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    current = result.data[0].get("enabled", True)
+    updated = supabase.table("tasks").update({"enabled": not current}).eq("id", task_id).execute()
+    return updated.data[0]
 
 
 @router.delete("/{task_id}", status_code=204)

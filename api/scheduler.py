@@ -1,14 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from core.database import supabase
 from schemas.scheduler import ScheduleCreate, ManualRunRequest
-from services.scheduler_service import (
-    execute_task,
-    _register_schedule,
-    unregister_schedule,
-)
-from services.scheduler_service import _get_task, _get_agent_llm_config_id
-from services.task_service import dry_run_task
-from services.scheduler_service import record_run
+from services.scheduler_service import _register_schedule, unregister_schedule, _get_task, record_run
+from services.docker_task import execute_task as docker_execute
 router = APIRouter(prefix="/scheduler", tags=["Scheduler"])
 
 
@@ -64,26 +58,29 @@ def delete_schedule(schedule_id: str):
 
 @router.post("/run")
 def manual_run(body: ManualRunRequest):
-    """Immediately execute a task and record it in history."""
-    task_result = supabase.table("tasks").select("id").eq("id", body.task_id).execute()
-    if not task_result.data:
-        raise HTTPException(status_code=404, detail="Task not found")
-    # Run in foreground so we can return the result
+    """Immediately execute a task inside Docker and record it in history."""
     task = _get_task(body.task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
     agent_ids = task.get("agent_ids", [])
-    llm_config_id = _get_agent_llm_config_id(agent_ids)
-    if not llm_config_id:
-        raise HTTPException(status_code=400, detail="No LLM config found on assigned agents")
+    if not agent_ids:
+        raise HTTPException(status_code=400, detail="No agents assigned to this task.")
+
+    agent_res = supabase.table("agents").select("*").eq("id", agent_ids[0]).execute()
+    if not agent_res.data:
+        raise HTTPException(status_code=400, detail="Agent not found.")
+    agent = agent_res.data[0]
 
     prompt = body.prompt or task.get("description", "Run this task.")
     try:
-        results = dry_run_task(
-            task["name"], task["description"], agent_ids,
-            task.get("workflow"), #llm_config_id, 
-            prompt,
+        result = docker_execute(
+            prompt=prompt,
+            agent_row=agent,
+            llm_config_id=agent["llm_config_id"],
         )
-        record_run(body.task_id, "manual", prompt, "success", results)
-        return {"status": "success", "results": results}
+        record_run(body.task_id, "manual", prompt, "success", result)
+        return {"status": "success", "result": result}
     except Exception as e:
         record_run(body.task_id, "manual", prompt, "error", {}, str(e))
         raise HTTPException(status_code=500, detail=str(e))

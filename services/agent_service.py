@@ -1,9 +1,9 @@
 
+import os
 from langchain.agents import initialize_agent, AgentType
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from tools.registry import TOOL_REGISTRY, CATEGORY_TOOLS
-from pprint import pprint
 
 def _build_llm(cfg: dict):
     """Instantiate the correct LangChain chat model from a decrypted config row."""
@@ -86,6 +86,12 @@ def build_agent_executor(agent_row: dict, llm_cfg: dict, role_hint: str = ""):
 
 def run_agent(agent_row: dict, llm_cfg: dict, prompt: str, role_hint: str = "") -> str:
     """Run the agent and return the final output string."""
+    # Expose LLM config as env vars so code_generator tool can use the same provider
+    os.environ["CODE_GEN_PROVIDER"] = llm_cfg.get("provider", "openai")
+    os.environ["CODE_GEN_API_KEY"]  = llm_cfg.get("api_key", "")
+    os.environ["CODE_GEN_API_URL"]  = llm_cfg.get("api_url", "")
+    os.environ["CODE_GEN_MODEL"]    = llm_cfg.get("model", "gpt-4o-mini")
+
     executor = build_agent_executor(agent_row, llm_cfg, role_hint)
 
     result = executor.invoke({"input": prompt})

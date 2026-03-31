@@ -7,6 +7,7 @@ class TaskCreate(BaseModel):
     description: str
     agent_ids: List[str]
     workflow: Optional[str] = None
+    enabled: Optional[bool] = True
 
 
 class TaskUpdate(BaseModel):
@@ -14,6 +15,7 @@ class TaskUpdate(BaseModel):
     description: Optional[str] = None
     agent_ids: Optional[List[str]] = None
     workflow: Optional[str] = None
+    enabled: Optional[bool] = None
 
 
 class TaskRead(BaseModel):

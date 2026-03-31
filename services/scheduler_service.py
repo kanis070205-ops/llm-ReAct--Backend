@@ -11,8 +11,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
 from core.database import supabase
-from services.task_service import dry_run_task
-from services.llm_service import get_llm_config
+from services.docker_task import execute_task as docker_execute
 
 scheduler = BackgroundScheduler(timezone="UTC")
 _file_watchers: dict[str, threading.Thread] = {}
@@ -22,15 +21,6 @@ _file_watcher_stop: dict[str, threading.Event] = {}
 def _get_task(task_id: str) -> Optional[dict]:
     result = supabase.table("tasks").select("*").eq("id", task_id).execute()
     return result.data[0] if result.data else None
-
-
-def _get_agent_llm_config_id(agent_ids: list[str]) -> Optional[str]:
-    """Return the llm_config_id from the first agent that has one."""
-    for agent_id in agent_ids:
-        result = supabase.table("agents").select("llm_config_id").eq("id", agent_id).execute()
-        if result.data and result.data[0].get("llm_config_id"):
-            return result.data[0]["llm_config_id"]
-    return None
 
 
 def record_run(task_id: str, trigger_type: str, prompt: str, status: str, output: dict, error: str = None):
@@ -47,30 +37,33 @@ def record_run(task_id: str, trigger_type: str, prompt: str, status: str, output
 
 
 def execute_task(task_id: str, trigger_type: str, prompt: str = ""):
-    """Run a task through all its agents and record the result."""
+    """Run a task inside a Docker container and record the result."""
     task = _get_task(task_id)
     if not task:
         record_run(task_id, trigger_type, prompt, "error", {}, "Task not found")
         return
 
     agent_ids = task.get("agent_ids", [])
-    llm_config_id = _get_agent_llm_config_id(agent_ids)
-    if not llm_config_id:
-        record_run(task_id, trigger_type, prompt, "error", {}, "No LLM config found on agents")
+    if not agent_ids:
+        record_run(task_id, trigger_type, prompt, "error", {}, "No agents assigned")
         return
+
+    # Load first agent
+    agent_res = supabase.table("agents").select("*").eq("id", agent_ids[0]).execute()
+    if not agent_res.data:
+        record_run(task_id, trigger_type, prompt, "error", {}, "Agent not found")
+        return
+    agent = agent_res.data[0]
 
     effective_prompt = prompt or task.get("description", "Run this task.")
 
     try:
-        results = dry_run_task(
-            task["name"],
-            task["description"],
-            agent_ids,
-            task.get("workflow"),
-            #llm_config_id,
-            effective_prompt,
+        result = docker_execute(
+            prompt=effective_prompt,
+            agent_row=agent,
+            llm_config_id=agent["llm_config_id"],
         )
-        record_run(task_id, trigger_type, effective_prompt, "success", results)
+        record_run(task_id, trigger_type, effective_prompt, "success", result)
     except Exception as e:
         record_run(task_id, trigger_type, effective_prompt, "error", {}, str(e))
 
